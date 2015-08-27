@@ -250,7 +250,6 @@ Gem::Specification.new do |s|
       s.add_development_dependency(%q<bson_ext>, [">= 0"])
       s.add_development_dependency(%q<rmagick>, ["= 2.12.2"])
       s.add_development_dependency(%q<sqlite3-ruby>, ["= 1.3.0"])
-      s.add_runtime_dependency(%q<rack>, [">= 0"])
     else
       s.add_dependency(%q<aws-s3>, [">= 0"])
       s.add_dependency(%q<capybara>, [">= 0"])
