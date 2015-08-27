@@ -269,7 +269,6 @@ Gem::Specification.new do |s|
       s.add_dependency(%q<bson_ext>, [">= 0"])
       s.add_dependency(%q<rmagick>, ["= 2.12.2"])
       s.add_dependency(%q<sqlite3-ruby>, ["= 1.3.0"])
-      s.add_dependency(%q<rack>, [">= 0"])
     end
   else
     s.add_dependency(%q<aws-s3>, [">= 0"])
