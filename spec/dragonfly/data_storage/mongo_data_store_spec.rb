@@ -1,6 +1,6 @@
 # encoding: utf-8
-require File.dirname(__FILE__) + '/../../spec_helper'
-require File.dirname(__FILE__) + '/data_store_spec'
+require 'spec_helper'
+require File.dirname(__FILE__) + '/shared_data_store_examples'
 require 'mongo'
 
 describe Dragonfly::DataStorage::MongoDataStore do
@@ -32,6 +32,25 @@ describe Dragonfly::DataStorage::MongoDataStore do
       @data_store.db.should_receive(:authenticate).exactly(:once).with('terry','butcher').and_return(true)
       uid = @data_store.store(@temp_object)
       @data_store.retrieve(uid)
+    end
+  end
+
+  describe "sharing already configured stuff" do
+    before(:each) do
+      @connection = Mongo::Connection.new
+      @temp_object = Dragonfly::TempObject.new('asdf')
+    end
+    
+    it "should allow sharing the connection" do
+      @data_store.connection = @connection
+      @connection.should_receive(:db).with('dragonfly_test').and_return(db=mock)
+      @data_store.db.should == db
+    end
+    
+    it "should allow sharing the db" do
+      db = @connection.db('dragonfly_test_yo')
+      @data_store.db = db
+      @data_store.grid.instance_eval{@db}.should == db # so wrong
     end
   end
 

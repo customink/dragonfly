@@ -5,15 +5,21 @@ module Dragonfly
 
     class FileDataStore
 
+      # Exceptions
+      class UnableToFormUrl < RuntimeError; end
+
       include Configurable
 
       configurable_attr :root_path, '/var/tmp/dragonfly'
+      configurable_attr :server_root
+      configurable_attr :store_meta, true
 
       def store(temp_object, opts={})
+        meta = opts[:meta] || {}
         relative_path = if opts[:path]
           opts[:path]
         else
-          filename = temp_object.name || 'file'
+          filename = meta[:name] || temp_object.original_filename || 'file'
           relative_path = relative_path_for(filename)
         end
 
@@ -24,7 +30,7 @@ module Dragonfly
           end
           prepare_path(path)
           temp_object.to_file(path).close
-          store_extra_data(path, temp_object)
+          store_meta_data(path, meta) if store_meta
         rescue Errno::EACCES => e
           raise UnableToStore, e.message
         end
@@ -33,24 +39,38 @@ module Dragonfly
       end
 
       def retrieve(relative_path)
+        validate_uid!(relative_path)
         path = absolute(relative_path)
-        file = File.new(path)
-        file.close
+        pathname = Pathname.new(path)
+        raise DataNotFound, "couldn't find file #{path}" unless pathname.exist?
         [
-          file,
-          retrieve_extra_data(path)
+          pathname,
+          (store_meta ? retrieve_meta_data(path) : {})
         ]
+      end
+
+      def destroy(relative_path)
+        validate_uid!(relative_path)
+        path = absolute(relative_path)
+        FileUtils.rm path
+        FileUtils.rm_f meta_data_path(path)
+        FileUtils.rm_f deprecated_meta_data_path(path)
+        purge_empty_directories(relative_path)
       rescue Errno::ENOENT => e
         raise DataNotFound, e.message
       end
 
-      def destroy(relative_path)
-        path = absolute(relative_path)
-        FileUtils.rm path
-        FileUtils.rm extra_data_path(path)
-        purge_empty_directories(relative_path)
-      rescue Errno::ENOENT => e
-        raise DataNotFound, e.message
+      def url_for(relative_path, opts={})
+        if server_root.nil?
+          raise NotConfigured, "you need to configure server_root for #{self.class.name} in order to form urls"
+        else
+          _, __, path = absolute(relative_path).partition(server_root)
+          if path.empty?
+            raise UnableToFormUrl, "couldn't form url for uid #{relative_path.inspect} with root_path #{root_path.inspect} and server_root #{server_root.inspect}"
+          else
+            path
+          end
+        end
       end
 
       def disambiguate(path)
@@ -67,14 +87,18 @@ module Dragonfly
       end
 
       def relative(absolute_path)
-        absolute_path[/^#{root_path}\/?(.*)$/, 1]
+        absolute_path[/^#{Regexp.escape root_path}\/?(.*)$/, 1]
       end
 
       def directory_empty?(path)
         Dir.entries(path) == ['.','..']
       end
 
-      def extra_data_path(data_path)
+      def meta_data_path(data_path)
+        "#{data_path}.meta"
+      end
+
+      def deprecated_meta_data_path(data_path)
         "#{data_path}.extra"
       end
 
@@ -84,15 +108,20 @@ module Dragonfly
         "#{time.strftime '%Y/%m/%d/%H_%M_%S'}_#{msec}_#{filename.gsub(/[^\w.]+/,'_')}"
       end
 
-      def store_extra_data(data_path, temp_object)
-        File.open(extra_data_path(data_path), 'wb') do |f|
-          f.write Marshal.dump(temp_object.attributes)
+      def store_meta_data(data_path, meta)
+        File.open(meta_data_path(data_path), 'wb') do |f|
+          f.write Marshal.dump(meta)
         end
       end
 
-      def retrieve_extra_data(data_path)
-        path = extra_data_path(data_path)
-        File.exist?(path) ?  File.open(path,'rb'){|f| Marshal.load(f.read) } : {}
+      def retrieve_meta_data(data_path)
+        path = meta_data_path(data_path)
+        if File.exist?(path)
+          File.open(path,'rb'){|f| Marshal.load(f.read) }
+        else
+          deprecated_path = deprecated_meta_data_path(data_path)
+          File.exist?(deprecated_path) ? File.open(deprecated_path,'rb'){|f| Marshal.load(f.read) } : {}
+        end
       end
 
       def prepare_path(path)
@@ -106,6 +135,10 @@ module Dragonfly
           dir = absolute(relative_dir)
           FileUtils.rmdir dir if directory_empty?(dir)
         end
+      end
+
+      def validate_uid!(uid)
+        raise BadUID, "tried to retrieve uid #{uid.inspect}" if uid.blank? || uid['../']
       end
 
     end

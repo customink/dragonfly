@@ -1,5 +1,5 @@
 # encoding: utf-8
-require File.dirname(__FILE__) + '/../spec_helper'
+require 'spec_helper'
 
 ## General tests for Response go here as it's a pretty simple wrapper around that
 
@@ -7,7 +7,7 @@ describe "Dragonfly::JobEndpoint Rack::Lint tests" do
   before(:each) do
     @app = test_app
     @app.generator.add(:test_data){ "Test Data" }
-    @job = Dragonfly::Job.new(@app).generate(:test_data)
+    @job = @app.generate(:test_data)
     @endpoint = Rack::Lint.new(Dragonfly::JobEndpoint.new(@job))
   end
   
@@ -43,7 +43,7 @@ describe Dragonfly::JobEndpoint do
   before(:each) do
     @app = test_app
     @app.datastore.stub!(:retrieve).with('egg').and_return(["GUNGLE", {:name => 'gung.txt'}])
-    @job = Dragonfly::Job.new(@app).fetch('egg')
+    @job = @app.new_job.fetch('egg')
   end
 
   it "should return a correct response to a successful GET request" do
@@ -82,6 +82,12 @@ describe Dragonfly::JobEndpoint do
 
   it "should return 404 if the datastore raises data not found" do
     @job.should_receive(:apply).and_raise(Dragonfly::DataStorage::DataNotFound)
+    response = make_request(@job)
+    response.status.should == 404
+  end
+
+  it "should return a 404 if the datastore raises bad uid" do
+    @job.should_receive(:apply).and_raise(Dragonfly::DataStorage::BadUID)
     response = make_request(@job)
     response.status.should == 404
   end
@@ -167,6 +173,56 @@ describe Dragonfly::JobEndpoint do
         response = make_request(@job, 'QUERY_STRING' => 'blah=yo')
         response['Content-Disposition'].should == 'gungyo; filename="gung.txt"'
       end
+    end
+  end
+  
+  describe "custom headers" do
+    before(:each) do
+      @app.configure{|c| c.response_headers['This-is'] = 'brill' }
+    end
+    it "should allow specifying custom headers" do
+      make_request(@job).headers['This-is'].should == 'brill'
+    end
+    it "should not interfere with other headers" do
+      make_request(@job).headers['Content-Length'].should == '6'
+    end
+    it "should allow overridding other headers" do
+      @app.response_headers['Cache-Control'] = 'try me'
+      make_request(@job).headers['Cache-Control'].should == 'try me'
+    end
+    it "should allow giving a proc" do
+      @app.response_headers['Cache-Control'] = proc{|job, request|
+        job.basename.reverse.upcase + request['a']
+      }
+      response = make_request(@job, 'QUERY_STRING' => 'a=egg')
+      response['Cache-Control'].should == 'GNUGegg'
+    end
+  end
+
+  describe "setting the job in the env for communicating with other rack middlewares" do
+    before(:each) do
+      @app.generator.add(:test_data){ "TEST DATA" }
+      @job = @app.generate(:test_data)
+      @endpoint = Dragonfly::JobEndpoint.new(@job)
+      @middleware = Class.new do
+        def initialize(app)
+          @app = app
+        end
+        
+        def call(env)
+          @app.call(env)
+          throw :result, env['dragonfly.job']
+        end
+      end
+    end
+    it "should add the job to env" do
+      middleware, endpoint = @middleware, @endpoint
+      app = Rack::Builder.new do
+        use middleware
+        run endpoint
+      end
+      result = catch(:result){ Rack::MockRequest.new(app).get('/') }
+      result.should == @job
     end
   end
 

@@ -1,5 +1,5 @@
-require File.dirname(__FILE__) + '/../../spec_helper'
-require File.dirname(__FILE__) + '/data_store_spec'
+require 'spec_helper'
+require File.dirname(__FILE__) + '/shared_data_store_examples'
 
 describe Dragonfly::DataStorage::FileDataStore do
   
@@ -42,14 +42,25 @@ describe Dragonfly::DataStorage::FileDataStore do
       @data_store.store(@temp_object)
     end
 
-    it "should use the temp_object name if it exists" do
-      @temp_object.should_receive(:name).at_least(:once).and_return('hello.there')
+    it "should use the temp_object original filename if it exists" do
+      @temp_object.should_receive(:original_filename).at_least(:once).and_return('hello.there')
       it_should_write_to_file("#{@file_pattern_prefix}hello.there", @temp_object)
       @data_store.store(@temp_object)
     end
 
-    it "should get rid of funny characters in the temp_object name" do
-      @temp_object.should_receive(:name).at_least(:once).and_return('A Picture with many spaces in its name (at 20:00 pm).png')
+    it "should use the meta name if it exists" do
+      it_should_write_to_file("#{@file_pattern_prefix}damp.squib", @temp_object)
+      @data_store.store(@temp_object, :meta => {:name => 'damp.squib'})
+    end
+
+    it "should prefer the meta name to the original filename" do
+      @temp_object.stub!(:original_filename).and_return('hello.there')
+      it_should_write_to_file("#{@file_pattern_prefix}damp.squib", @temp_object)
+      @data_store.store(@temp_object, :meta => {:name => 'damp.squib'})
+    end
+
+    it "should get rid of funny characters in the temp_object original filename" do
+      @temp_object.should_receive(:original_filename).at_least(:once).and_return('A Picture with many spaces in its name (at 20:00 pm).png')
       it_should_write_to_file("#{@file_pattern_prefix}A_Picture_with_many_spaces_in_its_name_at_20_00_pm_.png", @temp_object)
       @data_store.store(@temp_object)
     end
@@ -64,7 +75,7 @@ describe Dragonfly::DataStorage::FileDataStore do
       end
     
       it "should use a different filename taking into account the name and ext" do
-        @temp_object.should_receive(:name).at_least(:once).and_return('hello.png')
+        @temp_object.should_receive(:original_filename).at_least(:once).and_return('hello.png')
         touch_file("#{@file_pattern_prefix}hello.png")
         @data_store.should_receive(:disambiguate).with("#{@file_pattern_prefix}hello.png").and_return("#{@file_pattern_prefix}blah.png")
         @data_store.store(@temp_object)
@@ -101,7 +112,7 @@ describe Dragonfly::DataStorage::FileDataStore do
       end
     
       it "should return the filepath without the root of the stored file when a file name is provided" do
-        @temp_object.should_receive(:name).at_least(:once).and_return('hello.you.png')
+        @temp_object.should_receive(:original_filename).at_least(:once).and_return('hello.you.png')
         @data_store.store(@temp_object).should == "#{@file_pattern_prefix_without_root}hello.you.png"
       end
     
@@ -136,34 +147,168 @@ describe Dragonfly::DataStorage::FileDataStore do
   end
   
   describe "retrieve" do
-    it "should return a closed file" do
+    it "should return a pathname" do
       uid = @data_store.store(@temp_object)
-      file, extra = @data_store.retrieve(uid)
-      file.should be_closed
+      pathname, meta = @data_store.retrieve(uid)
+      pathname.should be_a(Pathname)
     end
-    it "should be able to retrieve any file, stored or not (and without extra data)" do
+    
+    it "should be able to retrieve any file, stored or not (and without meta data)" do
       FileUtils.mkdir_p("#{@data_store.root_path}/jelly_beans/are")
       File.open("#{@data_store.root_path}/jelly_beans/are/good", 'w'){|f| f.write('hey dog') }
-      file, meta = @data_store.retrieve("jelly_beans/are/good")
-      File.read(file.path).should == 'hey dog'
+      pathname, meta = @data_store.retrieve("jelly_beans/are/good")
+      pathname.read.should == 'hey dog'
       meta.should == {}
+    end
+    
+    it "should work even if meta is stored in old .extra file" do
+      uid = @data_store.store(@temp_object, :meta => {:dog => 'food'})
+      FileUtils.mv("#{@data_store.root_path}/#{uid}.meta", "#{@data_store.root_path}/#{uid}.extra")
+      pathname, meta = @data_store.retrieve(uid)
+      meta.should == {:dog => 'food'}
+    end
+    
+    it "should raise a BadUID error if the file path has ../ in it" do
+      expect{
+        @data_store.retrieve('jelly_beans/../are/good')
+      }.to raise_error(Dragonfly::DataStorage::BadUID)
+    end
+
+    it "should not raise a BadUID error if the file path has .. but not ../ in it" do
+      expect{
+        @data_store.retrieve('jelly_beans..good')
+      }.to raise_error(Dragonfly::DataStorage::DataNotFound)
     end
   end
   
   describe "destroying" do
-
-    it "should raise an error if the data doesn't exist" do
-      lambda{
-        @data_store.destroy('gooble/gubbub')
-      }.should raise_error(Dragonfly::DataStorage::DataNotFound)
-    end
-
     it "should prune empty directories when destroying" do
       uid = @data_store.store(@temp_object)
       @data_store.destroy(uid)
       @data_store.root_path.should be_an_empty_directory
     end
 
+    it "should raise an error if the data doesn't exist on destroy" do
+      uid = @data_store.store(@temp_object)
+      @data_store.destroy(uid)
+      lambda{
+        @data_store.destroy(uid)
+      }.should raise_error(Dragonfly::DataStorage::DataNotFound)
+    end
+
+    it "should also destroy old .extra files" do
+      uid = @data_store.store(@temp_object)
+      FileUtils.cp("#{@data_store.root_path}/#{uid}.meta", "#{@data_store.root_path}/#{uid}.extra")
+      @data_store.destroy(uid)
+      File.exist?("#{@data_store.root_path}/#{uid}").should be_false
+      File.exist?("#{@data_store.root_path}/#{uid}.meta").should be_false
+      File.exist?("#{@data_store.root_path}/#{uid}.extra").should be_false
+    end
+
+    it "should raise an error if the file path has ../ in it" do
+      expect{
+        @data_store.destroy('jelly_beans/../are/good')
+      }.to raise_error(Dragonfly::DataStorage::BadUID)
+    end
+  end
+
+  describe "relative paths" do
+    let(:store) { Dragonfly::DataStorage::FileDataStore.new }
+    let(:relative_path) { "2011/02/11/picture.jpg" }
+    let(:absolute_path) { "#{root_path}#{relative_path}" }
+    let(:root_path) { "/path/to/file/" }
+
+    before do
+      store.root_path = root_path
+    end
+
+    subject { store.send :relative, absolute_path }
+
+    it { should == relative_path }
+
+    context "where root path contains spaces" do
+      let(:root_path) { "/path/to/file name/" }
+      it { should == relative_path }
+    end
+    context "where root path contains special chars" do
+      let(:root_path) { "/path/to/file name (Special backup directory)/" }
+      it { should == relative_path }
+    end
+  end
+  
+  describe "turning meta off" do
+    before(:each) do
+      @data_store.store_meta = false
+    end
+
+    it "should not write a meta file" do
+      uid = @data_store.store(@temp_object, :meta => {:bitrate => '35', :name => 'danny.boy'})
+      path = File.join(@data_store.root_path, uid) + '.meta'
+      File.exist?(path).should be_false
+    end
+
+    it "should return an empty hash on retrieve" do
+      uid = @data_store.store(@temp_object, :meta => {:bitrate => '35', :name => 'danny.boy'})
+      obj, meta = @data_store.retrieve(uid)
+      meta.should == {}
+    end
+    
+    it "should still destroy the meta file if it exists" do
+      @data_store.store_meta = true
+      uid = @data_store.store(@temp_object)
+      @data_store.store_meta = false
+      @data_store.destroy(uid)
+      @data_store.root_path.should be_an_empty_directory
+    end
+
+    it "should still destroy properly if meta is on but the meta file doesn't exist" do
+      uid = @data_store.store(@temp_object)
+      @data_store.store_meta = true
+      @data_store.destroy(uid)
+      @data_store.root_path.should be_an_empty_directory
+    end
+  end
+  
+  describe "urls for serving directly" do
+    before(:each) do
+      @uid = 'some/path/to/file.png'
+      @data_store.root_path = '/var/tmp/eggs'
+    end
+    
+    it "should raise an error if called without configuring" do
+      expect{
+        @data_store.url_for(@uid)
+      }.to raise_error(Dragonfly::Configurable::NotConfigured)
+    end
+    
+    it "should work as expected when the the server root is above the root path" do
+      @data_store.server_root = '/var/tmp'
+      @data_store.url_for(@uid).should == '/eggs/some/path/to/file.png'
+    end
+
+    it "should work as expected when the the server root is the root path" do
+      @data_store.server_root = '/var/tmp/eggs'
+      @data_store.url_for(@uid).should == '/some/path/to/file.png'
+    end
+
+    it "should work as expected when the the server root is below the root path" do
+      @data_store.server_root = '/var/tmp/eggs/some/path'
+      @data_store.url_for(@uid).should == '/to/file.png'
+    end
+
+    it "should raise an error when the server root doesn't coincide with the root path" do
+      @data_store.server_root = '/var/blimey/eggs'
+      expect{
+        @data_store.url_for(@uid)
+      }.to raise_error(Dragonfly::DataStorage::FileDataStore::UnableToFormUrl)
+    end
+
+    it "should raise an error when the server root doesn't coincide with the uid" do
+      @data_store.server_root = '/var/tmp/eggs/some/gooney'
+      expect{
+        @data_store.url_for(@uid)
+      }.to raise_error(Dragonfly::DataStorage::FileDataStore::UnableToFormUrl)
+    end
   end
 
 end

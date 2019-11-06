@@ -1,4 +1,4 @@
-require File.dirname(__FILE__) + '/../../spec_helper'
+require 'spec_helper'
 
 describe String do
   
@@ -13,5 +13,5 @@ describe String do
       end
     end
   end
-  
+
 end

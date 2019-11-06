@@ -1,5 +1,4 @@
 require 'dragonfly'
-require 'rack/cache'
 require 'uri'
 
 ### The dragonfly app ###
@@ -8,15 +7,21 @@ app.configure_with(:rails)
 app.configure_with(:imagemagick)
 
 ### Extend active record ###
-app.define_macro(ActiveRecord::Base, :image_accessor)
+if defined?(ActiveRecord::Base)
+  app.define_macro(ActiveRecord::Base, :image_accessor)
+  app.define_macro(ActiveRecord::Base, :file_accessor)
+end
 
 ### Insert the middleware ###
-# Where the middleware is depends on the version of Rails
-middleware = Rails.respond_to?(:application) ? Rails.application.middleware : ActionController::Dispatcher.middleware
+Rails.application.middleware.insert 0, 'Dragonfly::Middleware', :images
 
-middleware.insert_after 'Rack::Lock', 'Dragonfly::Middleware', :images, app.url_path_prefix
-middleware.insert_before 'Dragonfly::Middleware', 'Rack::Cache', {
-  :verbose     => true,
-  :metastore   => URI.encode("file:#{Rails.root}/tmp/dragonfly/cache/meta"), # URI encoded because Windows
-  :entitystore => URI.encode("file:#{Rails.root}/tmp/dragonfly/cache/body")  # has problems with spaces
-}
+begin
+  require 'rack/cache'
+  Rails.application.middleware.insert_before 'Dragonfly::Middleware', 'Rack::Cache', {
+    :verbose     => true,
+    :metastore   => URI.encode("file:#{Rails.root}/tmp/dragonfly/cache/meta"), # URI encoded in case of spaces
+    :entitystore => URI.encode("file:#{Rails.root}/tmp/dragonfly/cache/body")
+  }
+rescue LoadError => e  
+  app.log.warn("Warning: couldn't find rack-cache for caching dragonfly content")
+end

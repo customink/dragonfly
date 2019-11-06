@@ -5,12 +5,14 @@ Dragonfly is a <a href="http://rack.rubyforge.org">Rack</a> framework for on-the
 
 Ideal for using with Ruby on Rails (2.3 and 3), Sinatra and all that gubbins.
 
+However, Dragonfly is NOT JUST FOR RAILS, and NOT JUST FOR IMAGES!!
+
 For the lazy Rails user...
 --------------------------
 **Gemfile**:
 
     gem 'rack-cache', :require => 'rack/cache'
-    gem 'dragonfly', '~>0.8.1'
+    gem 'dragonfly', '~>0.9.2'
 
 **Initializer** (e.g. config/initializers/dragonfly.rb):
 
@@ -18,7 +20,9 @@ For the lazy Rails user...
 
 **Migration**:
 
-    add_column :albums, :cover_image_uid, :string
+    add_column :albums, :cover_image_uid,  :string
+    add_column :albums, :cover_image_name, :string  # Optional - only if you want urls
+                                                    # to end with the original filename
 
 **Model**:
 
@@ -37,6 +41,22 @@ For the lazy Rails user...
     <% end %>
 
 NB: REMEMBER THE MULTIPART BIT!!!
+
+You can avoid having to re-upload when validations fail with
+
+      <%= f.hidden_field :retained_cover_image %>
+
+remove the attachment with
+
+      <%= f.check_box :remove_cover_image %>
+
+assign from some other url with
+
+      <%= f.text_field :cover_image_url %>
+
+and display a thumbnail (on the upload form) with
+
+      <%= image_tag @album.cover_image.thumb('100x100').url if @album.cover_image_uid %>
 
 **View** (to display):
 
@@ -59,9 +79,9 @@ If using Capistrano with the above, you probably will want to keep the cache bet
     end
     after 'deploy:update_code', 'dragonfly:symlink'
 
-Using outside of rails, custom storage/processing/encoding/analysis, and more...
---------------------------------------------------------------------------------
-Dragonfly is primarily a Rack app, so you can use it as a standalone app, or with Sinatra, Merb, etc.
+Sinatra, CouchDB, Mongo, Rack, S3, custom storage, processing, and more...
+--------------------------------------------------------------------------
+Dragonfly is not just for Rails - it's primarily a Rack app, so you can use it as a standalone app, or with Sinatra, Merb, etc.
 
 It's highly customizable, and works with any data type (not just images).
 

@@ -1,4 +1,4 @@
-require File.dirname(__FILE__) + '/../spec_helper'
+require 'spec_helper'
 
 describe Dragonfly::JobDefinitions do
 
@@ -30,6 +30,28 @@ describe Dragonfly::JobDefinitions do
 
     end
 
+  end
+  
+  
+  describe "#definition_names" do
+    
+    before(:each) do
+      @job_definitions = Dragonfly::JobDefinitions.new
+      @object = Object.new
+      @object.extend @job_definitions
+    end
+    
+    it "should provide an empty list when no jobs have been defined" do
+      @job_definitions.definition_names.should == []
+    end
+    
+    it "should contain the job name when one is defined" do
+      @job_definitions.add :foo do |size|
+        process :thumb, size
+      end
+      @job_definitions.definition_names.should eq [:foo]
+    end
+    
   end
   
 end

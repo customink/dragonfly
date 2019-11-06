@@ -11,14 +11,18 @@ Each app has a name, and is referred to by that name.
 
 Getting/generating content
 --------------------------
-Three methods can be used to get content:
+A number of methods can be used to get content:
 
     app.fetch('some_uid')                   # Fetch from datastore (default filesystem)
 
     app.fetch_file('~/path/to/file.png')    # Fetch from a local file
 
+    app.fetch_url('somewhere.com/img.png')  # Fetch from a url (will work with http, https)
+
     app.generate(:plasma, 400, 300)         # Generates using a method from the configured
                                             # generator (in this case a plasma image)
+
+    app.create("CONTENT")                   # Can pass in a String, Pathname, File or Tempfile
 
 These all return {Dragonfly::Job Job} objects. These objects are lazy - they don't do any fetching/generating until
 some other method is called on them.
@@ -44,6 +48,7 @@ We can get the data a number of ways...
 We can get its url...
 
     image.url                            # => "/media/BAhbBlsHOgZmIg9hc..."
+                                         # this won't work if we've used create to get the content
 
 We can analyse it (see {file:Analysers} for more info) ...
 
@@ -59,18 +64,7 @@ We can encode it (see {file:Encoding} for more info) ...
 
 Chaining
 --------
-Because the methods
-
-  - `fetch`
-
-  - `fetch_file`
-
-  - `generate`
-
-  - `process`
-
-  - `encode`
-
+Because the methods `fetch`, `fetch_file`, `fetch_url`, `generate`, `create`, `process` and `encode`
 all return {Dragonfly::Job Job} objects, we can chain them as much as we want...
 
     image = app.fetch('some_uid').process(:greyscale).process(:thumb, '40x20#').encode(:gif)
@@ -109,13 +103,3 @@ To define this shortcut:
       end
       # ...
     end
-
-The {Dragonfly::Config::ImageMagick ImageMagick} configuration comes with the pre-defined shortcuts:
-
-    image.thumb('40x30')              # same as image.process(:thumb, '40x30')
-    image.jpg                         # same as image.encode(:jpg)
-    image.png                         # same as image.encode(:png)
-    image.gif                         # same as image.encode(:gif)
-    image.convert('-scale 30x30')     # same as image.process(:convert, '-scale 30x30')
-
-`thumb` and `convert` can optionally take a format (e.g. :gif) as the second argument.

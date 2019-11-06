@@ -5,5 +5,5 @@ class String
   def to_method_name
     RUBY_VERSION =~ /^1.8/ ? self : to_sym
   end
-  
+
 end

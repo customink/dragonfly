@@ -5,10 +5,12 @@ README.md
 extra_docs/GeneralUsage.md
 extra_docs/Rails2.md
 extra_docs/Rails3.md
+extra_docs/ImageMagick.md
 extra_docs/Rack.md
 extra_docs/Sinatra.md
 extra_docs/Heroku.md
 extra_docs/Mongo.md
+extra_docs/Couch.md
 extra_docs/Models.md
 extra_docs/DataStorage.md
 extra_docs/Analysers.md
@@ -17,7 +19,9 @@ extra_docs/Encoding.md
 extra_docs/Generators.md
 extra_docs/Configuration.md
 extra_docs/URLs.md
-extra_docs/Caching.md
 extra_docs/MimeTypes.md
+extra_docs/Caching.md
+extra_docs/ServingRemotely.md
+extra_docs/ExampleUseCases.md
 LICENSE
 History.md

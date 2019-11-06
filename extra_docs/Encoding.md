@@ -1,8 +1,6 @@
 Encoding
 ========
-
-Changing the format of data, but not changing the data itself,
-e.g. converting to gif format, comes under the banner of Encoding.
+Registered encoders change the format of data, e.g. a jpeg image to a png image.
 
 You can register as many encoders as you like.
 
@@ -20,37 +18,6 @@ and an image object (actually a {Dragonfly::Job Job} object)...
 
 We can encode it to any format registered with the encoder.
 
-ImageMagickEncoder
-------------------
-The {Dragonfly::Encoding::ImageMagickEncoder ImageMagickEncoder} is registered by default by
-the {Dragonfly::Config::ImageMagick ImageMagick configuration} used by 'dragonfly/rails/images'.
-
-If not already registered:
-
-    app.encoder.register(Dragonfly::Encoding::ImageMagickEncoder)
-
-gives us:
-
-    image.encode(:jpg)
-    image.encode(:gif)
-    image.encode(:png)
-    image.encode(:tiff)
-
-and various other formats (see {Dragonfly::Encoding::ImageMagickEncoder ImageMagickEncoder}).
-
-You can also pass additional options to the imagemagick command line:
-
-    image.encode(:jpg, '-quality 10')
-
-RMagickEncoder
---------------
-The {Dragonfly::Encoding::RMagickEncoder RMagickEncoder} uses the {http://rmagick.rubyforge.org RMagick} library to do similar things to the
-ImageMagickEncoder above.
-
-You can tell it not to use the file system when registering it using
-
-    app.encoder.register(Dragonfly::Encoding::RMagickEncoder){|e| e.use_filesystem = false }
-
 Lazy evaluation
 ---------------
 
@@ -65,6 +32,10 @@ Bang method
 
 modifies the image object itself, rather than returning a new object.
 
+ImageMagick Encoder
+-------------------
+See {file:ImageMagick}.
+
 Custom Encoders
 ---------------
 
@@ -74,7 +45,7 @@ To register a custom encoder, for e.g. pdf format:
       throw :unable_to_handle unless format == :pdf
       # use temp_object.data, temp_object.path, temp_object.file, etc.
       SomeLibrary.convert_to_pdf(temp_object.data)
-      # return a String, File or Tempfile
+      # return a String, Pathname, File or Tempfile
     end
 
     pdf_image = image.encode(:pdf)

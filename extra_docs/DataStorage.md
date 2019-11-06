@@ -1,6 +1,5 @@
 Data Storage
 ============
-
 Each dragonfly app has a key-value datastore to store the content (originals only).
 
 Lets say we have an app
@@ -9,14 +8,14 @@ Lets say we have an app
 
 Then we can store data like so:
 
-    uid = app.store('SOME CONTENT')       # Can pass in a String, File or Tempfile
+    # Can pass in a String, Pathname, File or Tempfile
+    uid = app.store('SOME CONTENT')
 
-We can also save metadata at the same time, and give it a name and format (if you pass in a File object the filename is used by default)
+We can also save metadata at the same time, and any other options the configured datastore accepts
 
     uid = app.store('SOME CONTENT',
-      :meta => {:time => Time.now},
-      :name => 'great_content.txt',
-      :format => :txt
+      :meta => {:time => Time.now, :name => 'content.txt'},
+      :some => 'option'
     )
 
 We can get content with
@@ -26,13 +25,26 @@ We can get content with
 
 We can also get the extra saved attributes
 
-    content.meta         # {:time => Sat Aug 14 12:04:13 +0100 2010}
-    content.name         # 'great_content.txt'
-    content.format       # :txt
+    content.meta         # {:time => Sat Aug 14 12:04:13 +0100 2010, :name => 'content.txt'}
+    content.name         # 'content.txt'
 
 We can destroy it with
 
     app.destroy(uid)
+
+Serving directly from the datastore
+-----------------------------------
+Datastores can optionally serve data directly too, by implementing `url_for`
+
+    app.datastore.url_for(uid, :some => 'option')   # ---> "http://some.url/thing.txt"
+
+or (the same)
+
+    app.remote_url_for(uid, :some => 'option')
+
+or
+
+    my_model.remote_url(:some => 'option')
 
 You can create your own datastore, or use one of the provided ones as outlined below.
 
@@ -48,9 +60,22 @@ If for whatever reason you need to configure it again:
     app.datastore = Dragonfly::DataStorage::FileDataStore.new
 
     app.datastore.configure do |d|
-      d.root_path = '/my/custom/path'              # defaults to /var/tmp/dragonfly
+      d.root_path = '/filesystem/path/public/place'   # defaults to /var/tmp/dragonfly
+      d.server_root = '/filesystem/path/public'       # filesystem root for serving from - default to nil
+      d.store_meta = false                            # default to true - can be switched off to avoid
+                                                      #  saving an extra .meta file if meta not needed
     end
 
+You can serve directly from the FileDataStore if the `server_root` is set.
+
+To customize the storage path (and therefore the uid), use the `:path` option on store
+
+    app.store("SOME CONTENT", :path => 'some/path.txt')
+
+To do this on a per-model basis see {file:Models#Storage_options}.
+
+**BEWARE!!!!** you must make sure the path (which will become the uid for the content) is unique and changes each time the content
+is changed, otherwise you could have caching problems, as the generated urls will be the same for the same uid.
 
 S3 datastore
 ------------
@@ -58,14 +83,32 @@ To configure with the {Dragonfly::DataStorage::S3DataStore S3DataStore}:
 
     app.datastore = Dragonfly::DataStorage::S3DataStore.new
 
-    app.datastore.configure do |d|
+    app.datastore.configure do |c|
       c.bucket_name = 'my_bucket'
       c.access_key_id = 'salfjasd34u23'
       c.secret_access_key = '8u2u3rhkhfo23...'
+      c.region = 'eu-west-1'                        # defaults to 'us-east-1'
+      c.storage_headers = {'some' => 'thing'}       # defaults to {'x-amz-acl' => 'public-read'}
     end
 
 You can also pass these options to `S3DataStore.new` as an options hash.
 
+You can serve directly from the S3DataStore using e.g.
+
+    my_model.remote_url
+
+or with an expiring url:
+
+    my_model.remote_url(:expires => 3.days.from_now)
+
+Extra options you can use on store are `:path` and `:headers`
+
+    app.store("SOME CONTENT", :path => 'some/path.txt', :headers => {'x-amz-acl' => 'public-read-write'})
+
+To do this on a per-model basis see {file:Models#Storage_options}.
+
+**BEWARE!!!!** you must make sure the path (which will become the uid for the content) is unique and changes each time the content
+is changed, otherwise you could have caching problems, as the generated urls will be the same for the same uid.
 
 Mongo datastore
 ---------------
@@ -83,7 +126,32 @@ It won't normally need configuring, but if you wish to:
       c.password = 'some_password'                    # only needed if mongo is running in auth mode
     end
 
-You can also pass these options to `MongoDataStore.new` as an options hash.
+If you already have a mongo database or connection available, you can skip setting these and set `db` or `connection` instead.
+
+You can also pass any options to `MongoDataStore.new` as an options hash.
+
+You can't serve directly from the mongo datastore.
+
+Couch datastore
+---------------
+To configure with the {Dragonfly::DataStorage::CouchDataStore CouchDataStore}:
+
+    app.datastore = Dragonfly::DataStorage::CouchDataStore.new
+
+To configure:
+
+    app.datastore.configure do |d|
+      c.host = 'localhost'                            # defaults to localhost
+      c.port = '5984'                                 # defaults to couchdb default (5984)
+      c.database = 'dragonfly'                        # defaults to 'dragonfly'
+      c.username = ''                                 # not needed if couchdb is in 'admin party' mode
+      c.password = ''                                 # not needed if couchdb is in 'admin party' mode
+    end
+
+You can also pass these options to `CouchDataStore.new` as an options hash.
+
+You can serve directly from the couch datastore. You can optionally pass in a `:mime_type` option to `store`
+to tell it what to use for its 'Content-Type' header.
 
 Custom datastore
 ----------------
@@ -93,7 +161,6 @@ Data stores are key-value in nature, and need to implement 3 methods: `store`, `
 
       def store(temp_object, opts={})
         # ... use temp_object.data, temp_object.file, temp_object.path, etc. ...
-        # ... can also make use of temp_object.name, temp_object.format, temp_object.meta
         # store and return the uid
         'return_some_unique_uid'
       end
@@ -101,9 +168,9 @@ Data stores are key-value in nature, and need to implement 3 methods: `store`, `
       def retrieve(uid)
         # return an array containing
         [
-          content,            # either a File, String or Tempfile
-          extra_data          # Hash with optional keys :meta, :name, :format
-        ]
+          content,          # either a File, String or Tempfile
+          meta_data         # Hash - :name and :format are treated specially,
+        ]                   #  e.g. job.name is taken from job.meta[:name]
       end
 
       def destroy(uid)
@@ -117,20 +184,23 @@ You can now configure the app to use your datastore:
     Dragonfly[:my_app_name].datastore = MyDataStore.new
 
 Notice that `store` takes a second `opts` argument.
-Any options other than `meta`, `name` and `format` get passed through to here, so calling
+Any options, including `:meta`, get passed here
 
     uid = app.store('SOME CONTENT',
-      :name => 'great_content.txt',
+      :meta => {:name => 'great_content.txt'},
       :some_other => :option
     )
 
-will be split inside `store` like so:
-
-    def store(temp_object, opts={})
-      temp_object.data             # "SOME CONTENT"
-      temp_object.name             # 'great_content.txt'
-      opts                         # {:some_other => :option}
-      # ...
-    end
-
     # ...
+
+You can also optionally serve data directly from the datastore if it implements `url_for`:
+
+    class MyDataStore
+
+      # ...
+
+      def url_for(uid, opts={})
+        "http://some.domain/#{uid}"
+      end
+
+    end

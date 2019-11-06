@@ -1,52 +1,10 @@
 Analysers
 =========
+Analysers are registered with Dragonfly apps for adding methods to {file:GeneralUsage Job} objects and {file:Models model attachments} such as `width`, `height`, etc.
 
-Analysing data for things like width, mime_type, etc. come under the banner of Analysis.
-
-You can register as many analysers as you like.
-
-Let's say we have a Dragonfly app
-
-    app = Dragonfly[:images]
-
-and an image object (actually a {Dragonfly::Job Job} object)...
-
-    image = app.fetch('some/uid')
-
-...OR a Dragonfly model accessor...
-
-    image = @album.cover_image
-
-We can analyse it using any analysis methods that have been registered with the analyser.
-
-ImageMagickAnalyser
--------------------
-The {Dragonfly::Analysis::ImageMagickAnalyser ImageMagickAnalyser} is registered by default by the
-{Dragonfly::Config::ImageMagick ImageMagick configuration} used by 'dragonfly/rails/images'.
-
-If not already registered:
-
-    app.analyser.register(Dragonfly::Analysis::ImageMagickAnalyser)
-
-gives us these methods:
-
-    image.width               # => 280
-    image.height              # => 355
-    image.aspect_ratio        # => 0.788732394366197
-    image.portrait?           # => true
-    image.landscape?          # => false
-    image.depth               # => 8
-    image.number_of_colours   # => 34703
-    image.format              # => :png
-
-RMagickAnalyser
--------------------
-The {Dragonfly::Analysis::RMagickAnalyser RMagickAnalyser} uses the {http://rmagick.rubyforge.org RMagick} library and provides methods `width`, `height`, `aspect_ratio`,
-`portrait?`, `landscape?`, `depth`, `number_of_colours` and `format` like the ImageMagickAnalyser.
-
-You can tell it not to use the file system when registering it
-
-    app.analyser.register(Dragonfly::Analysis::RMagickAnalyser){|a| a.use_filesystem = false }
+ImageMagick Analyser
+--------------------
+See {file:ImageMagick}.
 
 FileCommandAnalyser
 -------------------
@@ -63,10 +21,12 @@ gives us:
 
     image.mime_type    # => 'image/png'
 
-It doesn't use the filesystem by default (it operates on in-memory strings), but we can make it do so by using
+You shouldn't need to configure it but if you need to:
 
     app.analyser.register(Dragonfly::Analysis::FileCommandAnalyser) do |a|
-      a.use_filesystem = true
+      a.use_filesystem = false                 # defaults to true
+      a.file_command = '/opt/local/bin/file'   # defaults to 'file'
+      a.num_bytes_to_check = 1024              # defaults to 255 - only applies if not using the filesystem
     end
 
 Custom Analysers

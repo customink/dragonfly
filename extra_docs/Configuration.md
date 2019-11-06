@@ -5,16 +5,16 @@ Given a Dragonfly app
 
     app = Dragonfly[:app_name]
 
-Configuration can either be done like so...
+Configuration can either be done using a block...
 
     app.configure do |c|
-      c.url_path_prefix = '/media'
+      c.url_format = '/media/:job'
       # ...
     end
 
-...or directly like so...
+...or directly...
 
-    app.url_path_prefix = '/media'
+    app.url_format = '/media/:job'
 
 The defaults should be fairly sensible, but you can tweak a number of things if you wish.
 Here is an example of an app with all attributes configured:
@@ -25,11 +25,10 @@ Here is an example of an app with all attributes configured:
       c.cache_duration = 3600*24*365*2                      # defaults to 1 year # (1 year)
       c.fallback_mime_type = 'something/mental'             # defaults to application/octet-stream
       c.log = Logger.new($stdout)                           # defaults to Logger.new('/var/tmp/dragonfly.log')
-      c.infer_mime_type_from_file_ext = false               # defaults to true
+      c.trust_file_extensions = false                       # defaults to true
 
-      c.url_path_prefix = '/images'                         # defaults to nil
+      c.url_format = '/images/:job/:basename.:format'       # defaults to '/:job/:basename.:format'
       c.url_host = 'http://some.domain.com:4000'            # defaults to nil
-      c.url_suffix = '.jpg'                                 # defaults to nil - has no effect other than change the url
 
       c.content_filename = proc{|job, request|              # defaults to the original name, with modified ext if encoded
         "file.#{job.ext}"
@@ -53,12 +52,39 @@ Here is an example of an app with all attributes configured:
         process :thumb, size
         encode  :gif
       end
+      
+      c.define_url do |app, job, opts|                      # allows overriding urls - defaults to
+        if job.step_types == [:fetch]                       #   app.server.url_for(job, opts)
+          app.datastore.url_for(job.uid)
+        else
+          app.server.url_for(job, opts)
+        end
+      end
+      
+      c.server.before_serve do |job, env|                   # allows you to do something before content is served
+        # do something
+      end
+      
+      c.response_headers['X-Something'] = 'Custom header'   # You can set custom response headers
+      c.response_headers['summink'] = proc{|job, request|   # either directly or via a callback
+        job.image? ? 'image yo' : 'not an image'
+      }
+      
+      # When using ImageMagick only...
+      c.convert_command = "/opt/local/bin/convert"          # defaults to "convert"
+      c.identify_command = "/opt/local/bin/convert"         # defaults to "convert"
+      c.log_commands = true                                 # defaults to false
     end
 
 Where is configuration done?
 ----------------------------
 In Rails, it should be done in an initializer, e.g. 'config/initializers/dragonfly.rb'.
 Otherwise it should be done anywhere where general setup is done, early on.
+
+Reflecting on configuration
+---------------------------
+There are a few methods you can call on the `app` to see what processors etc. are registered: `processor_methods`, `generator_methods`
+and `job_methods`.
 
 Saved configurations
 ====================
@@ -70,34 +96,19 @@ ImageMagick
 
     app.configure_with(:imagemagick)
 
-The {Dragonfly::Config::ImageMagick ImageMagick configuration} registers the app with the {Dragonfly::Analysis::ImageMagickAnalyser ImageMagickAnalyser}, {Dragonfly::Processing::ImageMagickProcessor ImageMagickProcessor},
-{Dragonfly::Encoding::ImageMagickEncoder ImageMagickEncoder} and {Dragonfly::Generation::ImageMagickGenerator ImageMagickGenerator}, and adds the 'job shortcuts'
-`thumb`, `jpg`, `png`, `gif` and `convert`.
+The {Dragonfly::ImageMagick::Config ImageMagick configuration} registers the app with the {Dragonfly::ImageMagick::Analyser ImageMagick Analyser}, {Dragonfly::ImageMagick::Processor ImageMagick Processor},
+{Dragonfly::ImageMagick::Encoder ImageMagick Encoder} and {Dragonfly::ImageMagick::Generator ImageMagick Generator}, and a number of job shortcuts.
 
 The file 'dragonfly/rails/images' does this for you.
 
 The processor, analyser, encoder and generator pass data around using tempfiles.
-
-RMagick
--------
-
-    app.configure_with(:rmagick)
-
-The {Dragonfly::Config::RMagick RMagick configuration} registers the app with the {Dragonfly::Analysis::RMagickAnalyser RMagickAnalyser}, {Dragonfly::Processing::RMagickProcessor RMagickProcessor},
-{Dragonfly::Encoding::RMagickEncoder RMagickEncoder} and {Dragonfly::Generation::RMagickGenerator RMagickGenerator}, and adds the 'job shortcuts'
-`thumb`, `jpg`, `png` and `gif`.
-
-By default the processor, analyser, encoder and generator pass data around using tempfiles.
-You can make it pass data around using in-memory strings using
-
-    app.configure_with(:rmagick, :use_filesystem => false)
 
 Rails
 -----
 
     app.configure_with(:rails)
 
-The {Dragonfly::Config::Rails Rails configuration} points the log to the Rails logger, configures the file data store root path, sets the url_path_prefix to /media, and
+The {Dragonfly::Config::Rails Rails configuration} points the log to the Rails logger, configures the file data store root path, sets the url path prefix to '/media', and
 registers the {Dragonfly::Analysis::FileCommandAnalyser FileCommandAnalyser} for helping with mime_type validations.
 
 The file 'dragonfly/rails/images' does this for you.
@@ -136,3 +147,12 @@ You can also carry on configuring by passing a block
       c.any_extra = :config_here
       # ...
     end
+
+If you wish to be able to use a symbol to represent your configuration (e.g. for a plugin, etc.) you can register it
+globally as a one-off:
+
+    Dragonfly::App.register_configuration(:myconfig){ My::Saved::Configuration }
+
+Then from then on you can configure Dragonfly apps using
+
+    app.configure_with(:myconfig, :any_other => :args)

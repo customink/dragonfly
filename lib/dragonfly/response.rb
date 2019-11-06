@@ -3,12 +3,9 @@ require 'uri'
 module Dragonfly
   class Response
 
-    DEFAULT_FILENAME = proc{|job, request|
-      if job.basename
-        extname = job.encoded_extname || (".#{job.ext}" if job.ext)
-        "#{job.basename}#{extname}"
-      end
-    }
+    DEFAULT_FILENAME = proc do |job, request|
+      [job.basename, job.format].compact.join('.') if job.basename
+    end
 
     def initialize(job, env)
       @job, @env = job, env
@@ -21,12 +18,21 @@ module Dragonfly
       elsif etag_matches?
         [304, cache_headers, []]
       elsif request.head?
-        [200, success_headers.merge(cache_headers), []]
+        job.apply
+        env['dragonfly.job'] = job
+        [200, success_headers, []]
       elsif request.get?
-        [200, success_headers.merge(cache_headers), job.result]
+        job.apply
+        env['dragonfly.job'] = job
+        [200, success_headers, job.result]
       end
-    rescue DataStorage::DataNotFound => e
-      [404, {"Content-Type" => 'text/plain'}, [e.message]]
+    rescue DataStorage::DataNotFound, DataStorage::BadUID => e
+      app.log.warn(e.message)
+      [404, {"Content-Type" => 'text/plain'}, ['Not found']]
+    end
+
+    def will_be_served?
+      request.get? && !etag_matches?
     end
 
     private
@@ -45,8 +51,9 @@ module Dragonfly
     end
 
     def etag_matches?
+      return @etag_matches unless @etag_matches.nil?
       if_none_match = env['HTTP_IF_NONE_MATCH']
-      if if_none_match
+      @etag_matches = if if_none_match
         if_none_match.tr!('"','')
         if_none_match.split(',').include?(job.unique_signature) || if_none_match == '*'
       else
@@ -56,9 +63,11 @@ module Dragonfly
 
     def success_headers
       {
-        "Content-Type" => job.resolve_mime_type,
+        "Content-Type" => job.mime_type,
         "Content-Length" => job.size.to_s
-      }.merge(content_disposition_header)
+      }.merge(content_disposition_header).
+        merge(cache_headers).
+        merge(custom_headers)
     end
 
     def content_disposition_header
@@ -81,6 +90,13 @@ module Dragonfly
 
     def filename
       @filename ||= evaluate(app.content_filename)
+    end
+
+    def custom_headers
+      @custom_headers ||= app.response_headers.inject({}) do |headers, (k, v)|
+        headers[k] = evaluate(v)
+        headers
+      end
     end
 
     def evaluate(attribute)

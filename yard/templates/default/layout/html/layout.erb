@@ -3,6 +3,8 @@
 <html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
   <head>
     <%= erb(:headers) %>
+    <link rel="stylesheet" type="text/css" href="http://fonts.googleapis.com/css?family=Inconsolata">
+    <link rel="stylesheet" type="text/css" href="http://fonts.googleapis.com/css?family=PT+Sans">
     <script type="text/javascript" charset="utf-8">
       (function($){
         // YARD automatically creates a table of contents
@@ -59,11 +61,13 @@
             ['GeneralUsage', 'General usage'],
             ['Rails2', 'Rails 2.3'],
             ['Rails3', 'Rails 3'],
-            ['Models', 'Models (ActiveRecord, ActiveModel, etc.)'],
+            ['Models', 'Models'],
+            ['ImageMagick', 'ImageMagick'],
             ['Rack', 'Rack'],
             ['Sinatra', 'Sinatra'],
             ['Heroku', 'Heroku'],
             ['Mongo', 'Mongo'],
+            ['Couch', 'Couch'],
             ['DataStorage', 'Data Storage'],
             ['Analysers', 'Analysers'],
             ['Processing', 'Processing'],
@@ -73,6 +77,8 @@
             ['URLs', 'URLs / Endpoints'],
             ['MimeTypes', 'Mime Types'],
             ['Caching', 'Caching'],
+            ['ServingRemotely', 'Serving Remotely'],
+            ['ExampleUseCases', 'Example Use Cases'],
             ['History', 'History'],
           ].map{|(file, text)|
             "<li>#{link_file(file, text)}</li>"

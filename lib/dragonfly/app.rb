@@ -25,33 +25,29 @@ module Dragonfly
 
     def initialize
       @analyser, @processor, @encoder, @generator = Analyser.new, Processor.new, Encoder.new, Generator.new
-      @analyser.use_same_log_as(self)
-      @processor.use_same_log_as(self)
-      @encoder.use_same_log_as(self)
-      @generator.use_same_log_as(self)
+      [@analyser, @processor, @encoder, @generator].each do |obj|
+        obj.use_same_log_as(self)
+        obj.use_as_fallback_config(self)
+      end
+      @server = Server.new(self)
       @job_definitions = JobDefinitions.new
-      @server = Dragonfly::SimpleEndpoint.new(self)
     end
 
     include Configurable
 
     extend Forwardable
     def_delegator :datastore, :destroy
-    def_delegators :new_job, :fetch, :generate, :fetch_file
-    def_delegator :server, :call
+    def_delegators :new_job, :fetch, :generate, :fetch_file, :fetch_url
+    def_delegators :server, :call
 
     configurable_attr :datastore do DataStorage::FileDataStore.new end
     configurable_attr :cache_duration, 3600*24*365 # (1 year)
     configurable_attr :fallback_mime_type, 'application/octet-stream'
-    configurable_attr :url_path_prefix
-    configurable_attr :url_host
-    configurable_attr :url_suffix
-    configurable_attr :protect_from_dos_attacks, false
     configurable_attr :secret, 'secret yo'
     configurable_attr :log do Logger.new('/var/tmp/dragonfly.log') end
-    configurable_attr :infer_mime_type_from_file_ext, true
+    configurable_attr :trust_file_extensions, true
     configurable_attr :content_disposition
-    configurable_attr :content_filename, Response::DEFAULT_FILENAME
+    configurable_attr :content_filename, Dragonfly::Response::DEFAULT_FILENAME
 
     attr_reader :analyser
     attr_reader :processor
@@ -59,34 +55,14 @@ module Dragonfly
     attr_reader :generator
     attr_reader :server
 
-    configuration_method :analyser
-    configuration_method :processor
-    configuration_method :encoder
-    configuration_method :generator
-    configuration_method :server
-    
+    nested_configurable :server, :analyser, :processor, :encoder, :generator
+
     attr_accessor :job_definitions
 
-    SAVED_CONFIGS = {
-      :imagemagick => 'ImageMagick',
-      :image_magick => 'ImageMagick',
-      :rmagick => 'RMagick',
-      :r_magick => 'RMagick',
-      :rails => 'Rails',
-      :heroku => 'Heroku'
-    }
-
-    def configurer_for(symbol)
-      class_name = SAVED_CONFIGS[symbol]
-      if class_name.nil?
-        raise ArgumentError, "#{symbol.inspect} is not a known configuration - try one of #{SAVED_CONFIGS.keys.join(', ')}"
-      end
-      Config.const_get(class_name)
+    def new_job(content=nil, meta={})
+      job_class.new(self, content, meta)
     end
-
-    def new_job(content=nil, opts={})
-      content ? Job.new(self, TempObject.new(content, opts)) : Job.new(self)
-    end
+    alias create new_job
 
     def endpoint(job=nil, &block)
       block ? RoutedEndpoint.new(self, &block) : JobEndpoint.new(job)
@@ -97,9 +73,20 @@ module Dragonfly
     end
     configuration_method :job
 
+    def job_class
+      @job_class ||= begin
+        app = self
+        Class.new(Job).class_eval do
+          include app.analyser.analysis_methods
+          include app.job_definitions
+          include Job::OverrideInstanceMethods
+          self
+        end
+      end
+    end
+
     def store(object, opts={})
       temp_object = object.is_a?(TempObject) ? object : TempObject.new(object)
-      temp_object.extract_attributes_from(opts)
       datastore.store(temp_object, opts)
     end
 
@@ -116,29 +103,28 @@ module Dragonfly
       registered_mime_types[file_ext_string(format)]
     end
 
-    def resolve_mime_type(temp_object)
-      mime_type_for(temp_object.format)                                   ||
-        (mime_type_for(temp_object.ext) if infer_mime_type_from_file_ext) ||
-        analyser.analyse(temp_object, :mime_type)                         ||
-        mime_type_for(analyser.analyse(temp_object, :format))             ||
-        fallback_mime_type
+    def response_headers
+      @response_headers ||= {}
     end
+    configuration_method :response_headers
 
-    def mount_path
-      url_path_prefix.blank? ? '/' : url_path_prefix
+    def define_url(&block)
+      @url_proc = block
     end
+    configuration_method :define_url
 
     def url_for(job, opts={})
-      opts = opts.dup
-      host = opts.delete(:host) || url_host
-      suffix = opts.delete(:suffix) || url_suffix
-      suffix = suffix.call(job) if suffix.respond_to?(:call)
-      path_prefix = opts.delete(:path_prefix) || url_path_prefix
-      path = "#{host}#{path_prefix}#{job.to_path}#{suffix}"
-      query = opts
-      query.merge!(server.required_params_for(job)) if protect_from_dos_attacks
-      path << "?#{Rack::Utils.build_query(query)}" if query.any?
-      path
+      if @url_proc
+        @url_proc.call(self, job, opts)
+      else
+        server.url_for(job, opts)
+      end
+    end
+
+    def remote_url_for(uid, opts={})
+      datastore.url_for(uid, opts)
+    rescue NoMethodError => e
+      raise NotImplementedError, "The datastore doesn't support serving content directly - #{datastore.inspect}"
     end
 
     def define_macro(mod, macro_name)
@@ -158,8 +144,43 @@ module Dragonfly
         alias included included_with_dragonfly
       end
     end
+    
+    # Reflection
+    def processor_methods
+      processor.functions.keys
+    end
+    
+    def generator_methods
+      generator.functions.keys
+    end
+    
+    def job_methods
+      job_definitions.definition_names
+    end
+    
+    # Deprecated methods
+    def url_path_prefix=(thing)
+      raise NoMethodError, "url_path_prefix is deprecated - please use url_format, e.g. url_format = '/media/:job/:basename.:format' - see docs for more details"
+    end
+    configuration_method :url_path_prefix=
+
+    def url_suffix=(thing)
+      raise NoMethodError, "url_suffix is deprecated - please use url_format, e.g. url_format = '/media/:job/:basename.:format' - see docs for more details"
+    end
+    configuration_method :url_suffix=
+
+    def infer_mime_type_from_file_ext=(bool)
+      raise NoMethodError, "infer_mime_type_from_file_ext is deprecated - please use trust_file_extensions = #{bool.inspect} instead"
+    end
+    configuration_method :infer_mime_type_from_file_ext=
 
     private
+
+    attr_accessor :get_remote_url
+
+    def saved_configs
+      self.class.saved_configs
+    end
 
     def file_ext_string(format)
       '.' + format.to_s.downcase.sub(/^.*\./,'')
