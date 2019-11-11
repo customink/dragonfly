@@ -14,7 +14,7 @@ describe Dragonfly::Serializer do
     '£ñçùí;'
   ].each do |string|
     it "should encode #{string.inspect} properly with no padding/line break" do
-      b64_encode(string).should_not =~ /\n|=/
+      b64_encode(string).should_not =~ /\//
     end
     it "should correctly encode and decode #{string.inspect} to the same string" do
       str = b64_decode(b64_encode(string))
